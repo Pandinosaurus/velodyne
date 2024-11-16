@@ -44,7 +44,7 @@
  *              PCAP dump
  */
 
-#include <velodyne_msgs/msg/velodyne_packet.hpp>
+#include "velodyne_driver/input.hpp"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -59,7 +59,8 @@
 #include <sstream>
 #include <string>
 
-#include "velodyne_driver/input.hpp"
+#include <velodyne_msgs/msg/velodyne_packet.hpp>
+
 #include "velodyne_driver/time_conversion.hpp"
 
 namespace velodyne_driver
@@ -125,6 +126,13 @@ InputSocket::InputSocket(
   my_addr.sin_family = AF_INET;            // host byte order
   my_addr.sin_port = htons(port);          // port in network byte order
   my_addr.sin_addr.s_addr = INADDR_ANY;    // automatically fill in my IP
+
+  // compatibility with Spot Core EAP, reuse port 2368
+  int val = 1;
+  if (setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val)) == -1) {
+    RCLCPP_ERROR(private_nh->get_logger(), "Error setting REUSEADDR: %s", ::strerror(errno));
+    return;
+  }
 
   if (::bind(sockfd_, reinterpret_cast<sockaddr *>(&my_addr), sizeof(sockaddr)) == -1) {
     RCLCPP_ERROR(private_nh->get_logger(), "Error binding to socket: %s", ::strerror(errno));
@@ -218,7 +226,7 @@ int InputSocket::getPacket(velodyne_msgs::msg::VelodynePacket * pkt, const doubl
         RCLCPP_ERROR(private_nh_->get_logger(), "recvfail: %s", ::strerror(errno));
         return -1;
       }
-    } else if ((size_t) nbytes == packet_size) {
+    } else if (static_cast<size_t>(nbytes) == packet_size) {
       // read successful,
       // if packet is not from the lidar scanner we selected by IP,
       // continue otherwise we are done
